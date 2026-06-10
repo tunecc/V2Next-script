@@ -477,6 +477,7 @@ export const functions = {
       }
     }
     window.config.themeMode = normalizeThemeMode(window.config.themeMode)
+    window.config.maxReplyCountLimit = normalizeMaxReplyCountLimit(window.config.maxReplyCountLimit, true)
     configMap[userName] = window.config
     localStorage.setItem('v2ex-config', JSON.stringify(configMap))
   },
@@ -619,6 +620,8 @@ export type ThemeMode = 'light' | 'dark'
 export type LegacyThemeMode = ThemeMode | 'system'
 export const THEME_CACHE_KEY = 'v2next-theme-mode'
 export const THEME_USER_KEY = 'v2next-theme-user-key'
+export const DEFAULT_MAX_REPLY_COUNT_LIMIT = 2000
+const LEGACY_DEFAULT_MAX_REPLY_COUNT_LIMIT = 400
 
 function resolveLegacyThemeMode(
   themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined,
@@ -642,6 +645,15 @@ export function normalizeThemeMode(
 ): Config['themeMode'] {
   const fallback = resolveLegacyThemeMode(fallbackMode, 'light')
   return resolveLegacyThemeMode(themeMode, fallback)
+}
+
+export function normalizeMaxReplyCountLimit(value: any, migrateLegacyDefault = false) {
+  const limit = Math.trunc(Number(value))
+  if (!Number.isFinite(limit) || limit < 1) return DEFAULT_MAX_REPLY_COUNT_LIMIT
+  if (migrateLegacyDefault && limit === LEGACY_DEFAULT_MAX_REPLY_COUNT_LIMIT) {
+    return DEFAULT_MAX_REPLY_COUNT_LIMIT
+  }
+  return limit
 }
 
 export function getStoredThemeMode(userKey = 'default'): ThemeMode | undefined {
@@ -773,9 +785,10 @@ export function getDefaultConfig(val: any = {}): Config {
       loopCheckNoticeInterval: 5,
     },
     replaceImgur: false,
-    maxReplyCountLimit: 400,
+    maxReplyCountLimit: DEFAULT_MAX_REPLY_COUNT_LIMIT,
   }, val)
   config.themeMode = normalizeThemeMode(config.themeMode)
+  config.maxReplyCountLimit = normalizeMaxReplyCountLimit(config.maxReplyCountLimit, true)
   return config
 }
 

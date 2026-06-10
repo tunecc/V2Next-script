@@ -157,6 +157,18 @@
                     单独打开这种地址 https://v2ex.com/t/xxxx 时，是否默认显示楼中楼
                   </div>
                 </div>
+                <div class="border">
+                  <div class="row">
+                    <label class="item-title">超过{{ config.maxReplyCountLimit }}条回复时停止解析楼中楼</label>
+                    <div class="wrapper">
+                      <input type="number" min="1" v-model.number="config.maxReplyCountLimit"
+                             @blur="normalizeMaxReplyCountLimit">
+                    </div>
+                  </div>
+                  <div class="desc">
+                    用于控制“回复过多时停止解析楼中楼”的阈值，默认 {{ DEFAULT_MAX_REPLY_COUNT_LIMIT }}
+                  </div>
+                </div>
 
                 <div class="row border">
                   <label class="item-title">点击左右两侧透明处关闭主题详情弹框</label>
@@ -399,7 +411,12 @@
 import Tooltip from "../Tooltip.vue";
 import {CommentDisplayType} from "@v2next/core/types.ts";
 import BaseSwitch from "../BaseSwitch.vue";
-import {DefaultVal, functions} from "@v2next/core/core.ts";
+import {
+  DEFAULT_MAX_REPLY_COUNT_LIMIT,
+  DefaultVal,
+  functions,
+  normalizeMaxReplyCountLimit as normalizeMaxReplyCountLimitValue
+} from "@v2next/core/core.ts";
 import BaseSelect from "@/components/BaseSelect.vue";
 import {Icon} from "@iconify/vue";
 import PopConfirm from "@/components/PopConfirm.vue";
@@ -452,6 +469,9 @@ export default {
     DefaultVal() {
       return DefaultVal
     },
+    DEFAULT_MAX_REPLY_COUNT_LIMIT() {
+      return DEFAULT_MAX_REPLY_COUNT_LIMIT
+    },
     CommentDisplayType() {
       return CommentDisplayType
     },
@@ -469,6 +489,7 @@ export default {
         if (n.topReplyLoveMinCount < 0) {
           n.topReplyLoveMinCount = 1
         }
+        n.maxReplyCountLimit = normalizeMaxReplyCountLimitValue(n.maxReplyCountLimit)
         this.$emit('update:modelValue', n)
       },
       deep: true
@@ -495,6 +516,9 @@ export default {
     }
   },
   methods: {
+    normalizeMaxReplyCountLimit() {
+      this.config.maxReplyCountLimit = normalizeMaxReplyCountLimitValue(this.config.maxReplyCountLimit)
+    },
     goPost() {
       fetch(DefaultVal.hotUrl + 'new.txt').then(async r => {
         let r2 = await r.text()

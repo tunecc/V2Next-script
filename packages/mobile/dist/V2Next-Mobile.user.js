@@ -2431,6 +2431,7 @@
         }
       }
       window.config.themeMode = normalizeThemeMode(window.config.themeMode);
+      window.config.maxReplyCountLimit = normalizeMaxReplyCountLimit(window.config.maxReplyCountLimit, true);
       configMap[userName] = window.config;
       localStorage.setItem("v2ex-config", JSON.stringify(configMap));
     },
@@ -2553,6 +2554,8 @@
     hotUrl: "https://v2hotlist.vercel.app/hot/",
     imgurProxy: "https://img.noobzone.ru/getimg.php?url="
   };
+  const DEFAULT_MAX_REPLY_COUNT_LIMIT = 2e3;
+  const LEGACY_DEFAULT_MAX_REPLY_COUNT_LIMIT = 400;
   function resolveLegacyThemeMode(themeMode, fallbackMode) {
     if (themeMode === "light" || themeMode === "dark")
       return themeMode;
@@ -2569,6 +2572,15 @@
   function normalizeThemeMode(themeMode, fallbackMode) {
     const fallback = resolveLegacyThemeMode(fallbackMode, "light");
     return resolveLegacyThemeMode(themeMode, fallback);
+  }
+  function normalizeMaxReplyCountLimit(value, migrateLegacyDefault = false) {
+    const limit = Math.trunc(Number(value));
+    if (!Number.isFinite(limit) || limit < 1)
+      return DEFAULT_MAX_REPLY_COUNT_LIMIT;
+    if (migrateLegacyDefault && limit === LEGACY_DEFAULT_MAX_REPLY_COUNT_LIMIT) {
+      return DEFAULT_MAX_REPLY_COUNT_LIMIT;
+    }
+    return limit;
   }
   function resolveThemeMode(themeMode = "light", originNight = false) {
     return normalizeThemeMode(themeMode, originNight ? "dark" : "light");
@@ -2643,9 +2655,10 @@
         loopCheckNoticeInterval: 5
       },
       replaceImgur: false,
-      maxReplyCountLimit: 400
+      maxReplyCountLimit: DEFAULT_MAX_REPLY_COUNT_LIMIT
     }, val);
     config2.themeMode = normalizeThemeMode(config2.themeMode);
+    config2.maxReplyCountLimit = normalizeMaxReplyCountLimit(config2.maxReplyCountLimit, true);
     return config2;
   }
   const _sfc_main$l = {
@@ -7755,6 +7768,7 @@
           }
         }
         window.config.themeMode = normalizeThemeMode(window.config.themeMode);
+        window.config.maxReplyCountLimit = normalizeMaxReplyCountLimit(window.config.maxReplyCountLimit, true);
         configMap[window.user.username ?? "default"] = window.config;
         localStorage.setItem("v2ex-config", JSON.stringify(configMap));
         resolve(window.config);

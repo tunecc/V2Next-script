@@ -9,6 +9,7 @@ import {
   functions,
   getDefaultConfig,
   getDefaultPost,
+  normalizeMaxReplyCountLimit,
   normalizeThemeMode
 } from "@v2next/core";
 
@@ -872,6 +873,7 @@ function run() {
         }
       }
       window.config.themeMode = normalizeThemeMode(window.config.themeMode)
+      window.config.maxReplyCountLimit = normalizeMaxReplyCountLimit(window.config.maxReplyCountLimit, true)
       configMap[window.user.username ?? 'default'] = window.config
       localStorage.setItem('v2ex-config', JSON.stringify(configMap))
       resolve(window.config)
