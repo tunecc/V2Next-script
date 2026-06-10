@@ -476,6 +476,7 @@ export const functions = {
         window.config = functions.deepAssign(window.config, configObj)
       }
     }
+    window.config.themeMode = normalizeThemeMode(window.config.themeMode)
     configMap[userName] = window.config
     localStorage.setItem('v2ex-config', JSON.stringify(configMap))
   },
@@ -614,8 +615,130 @@ export const DefaultVal = {
   imgurProxy: "https://img.noobzone.ru/getimg.php?url=",
 }
 
+export type ThemeMode = 'light' | 'dark'
+export type LegacyThemeMode = ThemeMode | 'system'
+export const THEME_CACHE_KEY = 'v2next-theme-mode'
+export const THEME_USER_KEY = 'v2next-theme-user-key'
+
+function resolveLegacyThemeMode(
+  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined,
+  fallbackMode: ThemeMode
+): ThemeMode {
+  if (themeMode === 'light' || themeMode === 'dark') return themeMode
+  if (themeMode === 'system') return getSystemThemeMode()
+  return fallbackMode
+}
+
+export function getSystemThemeMode(originNight = false): ThemeMode {
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+  return originNight ? 'dark' : 'light'
+}
+
+export function normalizeThemeMode(
+  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined,
+  fallbackMode?: Config['themeMode'] | LegacyThemeMode | string
+): Config['themeMode'] {
+  const fallback = resolveLegacyThemeMode(fallbackMode, 'light')
+  return resolveLegacyThemeMode(themeMode, fallback)
+}
+
+export function getStoredThemeMode(userKey = 'default'): ThemeMode | undefined {
+  const normalize = (mode: any): ThemeMode | undefined => (
+    mode === 'light' || mode === 'dark' ? mode : undefined
+  )
+  try {
+    const raw = localStorage.getItem('v2ex-config')
+    const configMap = raw ? JSON.parse(raw) : {}
+    const userMode = normalize(configMap?.[userKey]?.themeMode)
+    if (userMode) return userMode
+    if (userKey !== 'default') {
+      const defaultMode = normalize(configMap?.default?.themeMode)
+      if (defaultMode) return defaultMode
+    }
+    return normalize(localStorage.getItem(THEME_CACHE_KEY))
+  } catch (e) {
+    return normalize(localStorage.getItem(THEME_CACHE_KEY))
+  }
+}
+
+export function setStoredThemeMode(mode: ThemeMode, userKey = 'default') {
+  try {
+    const raw = localStorage.getItem('v2ex-config')
+    const configMap = raw ? JSON.parse(raw) : {}
+    const userConfig = configMap?.[userKey] ?? {}
+    userConfig.themeMode = mode
+    configMap[userKey] = userConfig
+    const defaultConfig = configMap?.default ?? {}
+    defaultConfig.themeMode = mode
+    configMap.default = defaultConfig
+    localStorage.setItem('v2ex-config', JSON.stringify(configMap))
+  } catch (e) {
+    // localStorage 解析失败时至少保留轻量缓存。
+  }
+  localStorage.setItem(THEME_CACHE_KEY, mode)
+  localStorage.setItem(THEME_USER_KEY, userKey)
+}
+
+export function resolveThemeMode(
+  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined = 'light',
+  originNight = false
+): ThemeMode {
+  return normalizeThemeMode(themeMode, originNight ? 'dark' : 'light')
+}
+
+export function resolveThemeNight(
+  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined = 'light',
+  originNight = false
+) {
+  return resolveThemeMode(themeMode, originNight) === 'dark'
+}
+
+export function resetOriginThemeMode(themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined = 'light') {
+  const mode = normalizeThemeMode(themeMode, 'light')
+  if (typeof document === 'undefined') return mode
+
+  const root = document.documentElement
+  root.classList.remove('Night')
+  root.dataset.v2nextTheme = mode
+  root.style.colorScheme = mode
+
+  if (document.body) {
+    document.body.classList.remove('Night')
+    document.body.dataset.v2nextOriginTheme = 'light'
+  }
+
+  const themeColor = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+  if (themeColor) {
+    themeColor.setAttribute('content', mode === 'dark' ? '#18222d' : '#ffffff')
+  }
+
+  return mode
+}
+
+export function applyThemeMode(
+  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined = 'light',
+  originNight = false
+) {
+  const mode = resetOriginThemeMode(resolveThemeMode(themeMode, originNight))
+  const isNight = mode === 'dark'
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('dark', isNight)
+  }
+  if (typeof window !== 'undefined') {
+    window.isNight = isNight
+  }
+  return isNight
+}
+
+export async function disableOriginNightMode(originNight = false) {
+  resetOriginThemeMode('light')
+  return originNight
+}
+
 export function getDefaultConfig(val: any = {}): Config {
-  return Object.assign({
+  const config = Object.assign({
     showToolbar: true,
     autoOpenDetail: true,
     openTag: false,//给用户打标签
@@ -639,6 +762,7 @@ export function getDefaultConfig(val: any = {}): Config {
     version: DefaultVal.currentVersion,
     collectBrowserNotice: false,
     fontSizeType: 'normal',
+    themeMode: 'light',
     notice: {
       uid: '',
       text: '',
@@ -651,6 +775,8 @@ export function getDefaultConfig(val: any = {}): Config {
     replaceImgur: false,
     maxReplyCountLimit: 400,
   }, val)
+  config.themeMode = normalizeThemeMode(config.themeMode)
+  return config
 }
 
 /** emoji表情数据 */
@@ -889,5 +1015,3 @@ export const classicsEmoticons = [
   //   high: 'https://i.imgur.com/RiUsPci.png'
   // },
 ]
-
-

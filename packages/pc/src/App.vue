@@ -15,9 +15,12 @@ import BaseSwitch from "./components/BaseSwitch.vue";
 import BaseLoading from "./components/BaseLoading.vue";
 import NotificationModal from "./components/Modal/NotificationModal.vue";
 import BaseButton from "./components/BaseButton.vue";
-import {DefaultVal, functions, getDefaultPost} from "@v2next/core/core.ts";
+import {applyThemeMode, DefaultVal, functions, getDefaultPost, normalizeThemeMode} from "@v2next/core/core.ts";
 import {Icon} from "@iconify/vue";
 import dayjs from "dayjs";
+
+const THEME_CACHE_KEY = 'v2next-theme-mode'
+const THEME_USER_KEY = 'v2next-theme-user-key'
 
 export default {
   components: {
@@ -89,6 +92,9 @@ export default {
         dayCount: 0,
         firstDayWeek: 0,
         select: '',
+        currentDate: '',
+        currentLabel: '',
+        hotDateSlotReady: false,
       }
     }
   },
@@ -105,17 +111,29 @@ export default {
     isMember() {
       return this.pageType === PageType.Member
     },
+    calendarYearList() {
+      const nowYear = new Date().getUTCFullYear()
+      return Array.from({length: nowYear - 2010 + 1}, (_, i) => nowYear - i)
+    },
   },
   watch: {
     config: {
       handler(newVal, oldVal) {
         console.log('config', functions.clone(newVal).notice, functions.clone(oldVal).notice)
-        let configStr = localStorage.getItem('v2ex-config')
-        if (configStr) {
-          let configObj = JSON.parse(configStr)
-          configObj[window.user.username || 'default'] = newVal
-          localStorage.setItem('v2ex-config', JSON.stringify(configObj))
+        const mode = normalizeThemeMode(newVal?.themeMode)
+        if (newVal?.themeMode !== mode) {
+          newVal.themeMode = mode
         }
+        const configStr = localStorage.getItem('v2ex-config')
+        const configObj = configStr ? JSON.parse(configStr) : {}
+        const userKey = window.user.username || 'default'
+        configObj[userKey] = newVal
+        const defaultConfig = configObj.default ?? {}
+        defaultConfig.themeMode = mode
+        configObj.default = defaultConfig
+        localStorage.setItem('v2ex-config', JSON.stringify(configObj))
+        localStorage.setItem(THEME_CACHE_KEY, mode)
+        localStorage.setItem(THEME_USER_KEY, userKey)
         window.config = newVal
         window.parse.editNoteItem(window.user.configPrefix + JSON.stringify(window.config), window.user.configNoteId)
       },
@@ -135,6 +153,13 @@ export default {
           $(this).removeClass('preview')
         })
       }
+    },
+    'config.themeMode': {
+      handler() {
+        this.applyThemeByConfig()
+        this.updateThemeToggleIcon()
+      },
+      immediate: true
     },
     'pageInfo.number'(newVal) {
       clearInterval(this.timer2)
@@ -282,6 +307,13 @@ export default {
       }
     }
   },
+  mounted() {
+    this.calendar.hotDateSlotReady = Boolean(document.querySelector('#current-hot-date-slot'))
+    if (this.calendar.hotDateSlotReady && !this.calendar.currentLabel) {
+      this.setCurrentHotDate(this.getHotListBaseDate().format('YYYY-M-D'), '0')
+    }
+    this.interceptThemeToggle()
+  },
   beforeUnmount() {
     // console.log('unmounted')
     clearInterval(this.timer)
@@ -289,10 +321,136 @@ export default {
     $(document).off('click', 'a', this.clickA)
   },
   methods: {
+    applyThemeByConfig() {
+      const mode = normalizeThemeMode(this.config?.themeMode)
+      if (this.config.themeMode !== mode) {
+        this.config.themeMode = mode
+      }
+      this.isNight = applyThemeMode(mode, false)
+      localStorage.setItem(THEME_CACHE_KEY, mode)
+    },
+    interceptThemeToggle() {
+      const originToggle = document.querySelector('.light-toggle')
+      if (originToggle) {
+        if (!originToggle.dataset.v2nextThemeBound) {
+          originToggle.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            this.config.themeMode = this.isNight ? 'light' : 'dark'
+          })
+          originToggle.dataset.v2nextThemeBound = '1'
+        }
+        originToggle.removeAttribute('href')
+      }
+
+      const container = document.querySelector('#site-header .tools, #Top .tools, .tools')
+      if (!container) return
+
+      let toggle = container.querySelector('.v2next-theme-toggle')
+      if (!toggle) {
+        toggle = document.createElement('button')
+        toggle.type = 'button'
+        toggle.className = 'v2next-theme-toggle'
+        toggle.setAttribute('aria-label', '切换 V2Next 深浅色模式')
+        toggle.addEventListener('click', (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          this.config.themeMode = this.isNight ? 'light' : 'dark'
+        })
+
+        const anchor = container.querySelector('a[href^="/member/"], a[href*="/member/"], .avatar, #avatar, .light-toggle')
+        if (anchor?.insertAdjacentElement) {
+          anchor.insertAdjacentElement('afterend', toggle)
+        } else {
+          container.prepend(toggle)
+        }
+      }
+
+      originToggle?.classList.add('v2next-origin-theme-toggle-hidden')
+      this.updateThemeToggleIcon()
+    },
+    updateThemeToggleIcon() {
+      const toggle = document.querySelector('.v2next-theme-toggle')
+      if (!toggle) return
+      const actualMode = this.isNight ? 'dark' : 'light'
+      const size = 20
+      const icons = {
+        light: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+        dark: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
+      }
+      const labels = {light: '浅色模式', dark: '深色模式'}
+      toggle.innerHTML = icons[actualMode]
+      toggle.title = `当前：${labels[actualMode]}（点击切换）`
+    },
+    getHotListBaseDate() {
+      const now = new Date()
+      return dayjs(new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    },
+    createLocalDate(year, month, date = 1) {
+      return dayjs(new Date(Number(year), Number(month), Number(date)))
+    },
+    setCurrentHotDate(day, rawDate = '') {
+      const dateNum = Number(rawDate)
+      if (dateNum === 0) {
+        this.calendar.currentDate = day
+        this.calendar.currentLabel = '今天最热'
+      } else if (dateNum === -1) {
+        this.calendar.currentDate = day
+        this.calendar.currentLabel = '昨天最热'
+      } else if (dateNum === -2) {
+        this.calendar.currentDate = day
+        this.calendar.currentLabel = '前天最热'
+      } else if (dateNum === 3) {
+        this.calendar.currentDate = '3d'
+        this.calendar.currentLabel = '近 3 天最热'
+      } else if (dateNum === 7) {
+        this.calendar.currentDate = '7d'
+        this.calendar.currentLabel = '近 7 天最热'
+      } else if (dateNum === 30) {
+        this.calendar.currentDate = '30d'
+        this.calendar.currentLabel = '近 30 天最热'
+      } else {
+        const d = dayjs(day)
+        if (d.isValid()) {
+          this.calendar.currentDate = d.format('YYYY-M-D')
+          this.calendar.currentLabel = d.format('YYYY-MM-DD')
+          this.calendar.select = d.format('YYYY-M-D')
+          this.calendar.year = d.year()
+          this.calendar.month = d.month()
+          this.syncCalendarMonthMeta(d)
+        } else {
+          this.calendar.currentDate = day
+          this.calendar.currentLabel = day
+        }
+      }
+    },
+    initCalendar(date) {
+      const targetDate = date || this.getHotListBaseDate()
+      this.calendar.year = targetDate.year()
+      this.calendar.month = targetDate.month()
+      this.calendar.dayCount = targetDate.daysInMonth()
+      this.calendar.firstDayWeek = targetDate.startOf('month').day()
+      this.calendar.select = targetDate.format('YYYY-M-D')
+    },
+    syncCalendarMonthMeta(baseDate) {
+      this.calendar.dayCount = baseDate.daysInMonth()
+      this.calendar.firstDayWeek = baseDate.startOf('month').day()
+    },
+    updateCalendarByYearMonth() {
+      let now = this.createLocalDate(this.calendar.year, this.calendar.month)
+      this.syncCalendarMonthMeta(now)
+      const selectedDate = dayjs(this.calendar.select)
+      const day = selectedDate.isValid() ? selectedDate.date() : 1
+      now = now.date(Math.min(day, now.daysInMonth()))
+      this.calendar.select = now.format('YYYY-M-D')
+    },
+    selectCalendarDay(day) {
+      if (day <= 0) return
+      const d = this.createLocalDate(this.calendar.year, this.calendar.month, day)
+      this.calendar.select = d.format('YYYY-M-D')
+    },
     getMonthDayInfo(num) {
-      let now = dayjs()
-      now = now.year(this.calendar.year)
-      now = now.month(this.calendar.month)
+      let now = this.createLocalDate(this.calendar.year, this.calendar.month)
       if (num > 0) {
         now = now.add(1, 'month')
       } else {
@@ -300,8 +458,8 @@ export default {
       }
       this.calendar.year = now.year()
       this.calendar.month = now.month()
-      this.calendar.dayCount = now.daysInMonth();
-      this.calendar.firstDayWeek = now.startOf('month').day()
+      this.syncCalendarMonthMeta(now)
+      this.updateCalendarByYearMonth()
     },
     checkReplyItemType(val) {
       let d = $(val)
@@ -361,20 +519,22 @@ export default {
               $('#Rightbar > .sep20:first').css('height', 'var(--component-margin)')
             } else {
               $('#Rightbar > .sep20:first').css('height', 'unset')
-              let now = dayjs()
-              this.calendar.year = now.year()
-              this.calendar.month = now.month()
-              this.calendar.dayCount = now.daysInMonth();
-              this.calendar.firstDayWeek = now.startOf('month').day()
-              this.calendar.select = `${this.calendar.year}-${this.calendar.month + 1}-${now.date()}`
+              if (this.calendar.currentDate && dayjs(this.calendar.currentDate).isValid()) {
+                this.initCalendar(dayjs(this.calendar.currentDate))
+              } else {
+                this.initCalendar()
+              }
             }
             this.calendar.show = !this.calendar.show
             functions.stopEvent(e)
             return
           }
-          let now = dayjs()
+          let now = this.getHotListBaseDate()
           let day = ''
           switch (Number(date)) {
+            case 0:
+              day = now.format('YYYY-M-D')
+              break
             case -1:
               day = now.subtract(1, 'day').format('YYYY-M-D')
               break
@@ -393,13 +553,17 @@ export default {
             default:
               day = date
               if (dayjs(day).isSame(now, 'day')) {
+                this.setCurrentHotDate(day, date)
                 functions.stopEvent(e)
                 return location.reload()
               }
           }
           if (day) {
+            this.setCurrentHotDate(day, date)
             fetch(DefaultVal.hotUrl + day + '.json').then(async r => {
+              if (!r.ok) throw new Error(`hotlist ${day} ${r.status}`)
               let r1 = await r.json()
+              if (!Array.isArray(r1)) throw new Error(`hotlist ${day} invalid response`)
               $('.cell.item.post-item').remove()
               r1.reverse().map(v => {
                 let s = `
@@ -449,7 +613,11 @@ export default {
           return
         default:
           //夜间模式切换
-          if (e.currentTarget.href.includes('/settings/night/toggle')) return
+          if (e.currentTarget.href.includes('/settings/night/toggle')) {
+            this.config.themeMode = this.isNight ? 'light' : 'dark'
+            functions.stopEvent(e)
+            return
+          }
           //清除最近记录
           if (e.currentTarget.href === location.origin + '/#;') return
           //未读提醒
@@ -888,17 +1056,28 @@ export default {
   />
   <Base64Tooltip/>
   <MsgModal/>
+  <teleport to="#current-hot-date-slot" v-if="calendar.hotDateSlotReady && calendar.currentLabel">
+    <div class="current-hot-date">
+      <span class="dot"></span>
+      <span class="label">当前</span>
+      <span class="value">{{ calendar.currentLabel }}</span>
+    </div>
+  </teleport>
   <teleport to="#Rightbar > .sep20">
     <div class="" v-if="calendar.show">
       <div class="sep"></div>
       <div class="box calender">
         <div class="month">
-          <div class="fade">历史最热</div>
           <div class="ca-title">
             <i class="fa fa-arrow-left"
                @click="getMonthDayInfo(-1)"
                aria-hidden="true"></i>
-            <span>{{ calendar.year }}年{{ calendar.month + 1 }}月</span>
+            <select v-model.number="calendar.year" @change="updateCalendarByYearMonth">
+              <option v-for="y in calendarYearList" :key="y" :value="y">{{ y }}年</option>
+            </select>
+            <select v-model.number="calendar.month" @change="updateCalendarByYearMonth">
+              <option v-for="m in 12" :key="m" :value="m - 1">{{ m }}月</option>
+            </select>
             <i class="fa fa-arrow-right"
                @click="getMonthDayInfo(1)"
                aria-hidden="true"></i>
@@ -918,7 +1097,7 @@ export default {
             'day',
             calendar.select === `${calendar.year}-${calendar.month+1}-${i - calendar.firstDayWeek}`?'active':''
           ]"
-               @click="calendar.select = `${calendar.year}-${calendar.month+1}-${i - calendar.firstDayWeek}`"
+               @click="selectCalendarDay(i - calendar.firstDayWeek)"
                v-for="i in calendar.dayCount+calendar.firstDayWeek">
             <a v-if="i - calendar.firstDayWeek > 0"
                :href="`/v2hot?${calendar.year}-${calendar.month+1}-${i - calendar.firstDayWeek}`">
@@ -1002,6 +1181,65 @@ export default {
   color: var(--color-font-pure);
 }
 
+.current-hot-date {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 1rem;
+  padding: .2rem 1rem .2rem .6rem;
+  background: linear-gradient(135deg, #e8f4fd, #dbeafe);
+  gap: .5rem;
+  min-height: 2rem;
+  vertical-align: middle;
+  border: 1px solid rgba(22, 119, 255, 0.15);
+  position: relative;
+  top: -1px;
+
+  .dot {
+    width: .6rem;
+    height: .6rem;
+    border-radius: 50%;
+    background: #1677ff;
+    animation: pulse-dot 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  .label {
+    color: #64748b;
+    font-size: 1.1rem;
+    font-weight: 500;
+  }
+
+  .value {
+    color: #1677ff;
+    font-size: 1.2rem;
+    font-weight: 700;
+  }
+}
+
+html.dark .current-hot-date {
+  background: linear-gradient(135deg, #1e3a5f, #1a2f4a);
+  border-color: rgba(64, 158, 255, 0.3);
+
+  .dot {
+    background: #409eff;
+    box-shadow: 0 0 4px rgba(64, 158, 255, 0.6);
+  }
+
+  .label {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .value {
+    color: #409eff;
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
 .calender {
   padding: 10px;
   font-size: 14px;
@@ -1026,6 +1264,15 @@ export default {
       width: 30px;
       cursor: pointer;
       color: darkgrey;
+    }
+
+    select {
+      height: 26px;
+      border: 1px solid var(--color-input-border);
+      border-radius: 4px;
+      background: var(--color-input-bg);
+      color: var(--color-font-8);
+      outline: none;
     }
   }
 
@@ -1066,4 +1313,3 @@ export default {
   }
 }
 </style>
-

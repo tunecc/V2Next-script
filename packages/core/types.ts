@@ -75,6 +75,7 @@ export interface Config {
   version: number
   collectBrowserNotice: boolean// 收藏时，浏览器提醒
   fontSizeType: 'normal' | 'small' | 'large' | 'big-large'//字体大小
+  themeMode: 'light' | 'dark'//主题模式
   notice: {
     uid: string,
     text: string

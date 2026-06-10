@@ -1,55 +1,66 @@
 import {createApp} from 'vue';
 import App from './App.vue';
 import './global.d.ts'
-import {
-  GM_registerMenuCommand,
-  GM_xmlhttpRequest,
-  GM_addStyle,
-  GM_addElement,
-  GM_addElement,
-  GM_addStyle, GM_deleteValue,
-  GM_getResourceUrl,
-  GM_getValue,
-  GM_info,
-  GM_listValues,
-  GM_notification,
-  GM_openInTab,
-  GM_registerMenuCommand,
-  GM_setClipboard,
-  GM_setValue,
-  GM_xmlHttpRequest,
-  GM_addElement,
-  GM_addStyle,
-  GM_addValueChangeListener,
-  GM_cookie,
-  GM_deleteValue,
-  GM_download,
-  GM_getResourceText,
-  GM_getResourceURL,
-  GM_getTab,
-  GM_getTabs,
-  GM_getValue,
-  GM_info,
-  GM_listValues,
-  GM_log,
-  GM_notification,
-  GM_openInTab,
-  GM_registerMenuCommand,
-  GM_removeValueChangeListener,
-  GM_saveTab,
-  GM_setClipboard,
-  GM_setValue,
-  GM_unregisterMenuCommand,
-  GM_webRequest,
-  GM_xmlhttpRequest
-} from "gmApi"
+import {GM_addStyle, GM_registerMenuCommand} from "gmApi"
 import {PageType, Post, Reply} from "@v2next/core/types"
-import {DefaultUser, DefaultVal, functions, getDefaultConfig, getDefaultPost} from "@v2next/core";
+import {
+  applyThemeMode,
+  DefaultUser,
+  DefaultVal,
+  functions,
+  getDefaultConfig,
+  getDefaultPost,
+  normalizeThemeMode
+} from "@v2next/core";
 import dayjs from "dayjs";
 
-let isMobile = !document.querySelector('#Rightbar');
+const THEME_CACHE_KEY = 'v2next-theme-mode'
+const THEME_USER_KEY = 'v2next-theme-user-key'
+
+function getStoredThemeMode(userKey = 'default') {
+  const normalize = (mode: any) => mode === 'light' || mode === 'dark' ? mode : undefined
+  try {
+    const raw = localStorage.getItem('v2ex-config')
+    const configMap = raw ? JSON.parse(raw) : {}
+    const userMode = normalize(configMap?.[userKey]?.themeMode)
+    if (userMode) return userMode
+    if (userKey !== 'default') {
+      const defaultMode = normalize(configMap?.default?.themeMode)
+      if (defaultMode) return defaultMode
+    }
+    return normalize(localStorage.getItem(THEME_CACHE_KEY))
+  } catch (e) {
+    return normalize(localStorage.getItem(THEME_CACHE_KEY))
+  }
+}
+
+function setStoredThemeMode(mode: 'light' | 'dark', userKey = 'default') {
+  try {
+    const raw = localStorage.getItem('v2ex-config')
+    const configMap = raw ? JSON.parse(raw) : {}
+    const userConfig = configMap?.[userKey] ?? {}
+    userConfig.themeMode = mode
+    configMap[userKey] = userConfig
+    const defaultConfig = configMap?.default ?? {}
+    defaultConfig.themeMode = mode
+    configMap.default = defaultConfig
+    localStorage.setItem('v2ex-config', JSON.stringify(configMap))
+  } catch (e) {
+    // localStorage 解析失败时至少保留轻量缓存。
+  }
+  localStorage.setItem(THEME_CACHE_KEY, mode)
+  localStorage.setItem(THEME_USER_KEY, userKey)
+}
+
 let $section = document.createElement('section')
 $section.id = 'app'
+const bootstrapThemeMode = getStoredThemeMode() ?? 'light'
+const bootstrapIsNight = applyThemeMode(bootstrapThemeMode, false)
+if (!document.body) {
+  document.addEventListener('DOMContentLoaded', () => {
+    applyThemeMode(bootstrapThemeMode, false)
+  }, {once: true})
+}
 
 function run() {
   window.user = DefaultUser
@@ -57,12 +68,26 @@ function run() {
   window.pageType = undefined
   window.pageData = {pageNo: 1}
   window.config = getDefaultConfig()
-  window.isNight = $('.Night').length === 1
+  window._originNight = false
+  window.isNight = bootstrapIsNight
   window.cb = null
   window.stopMe = false
   window.isLogin = false
   window.postList = []
+  const getUserKey = () => window.user.username || 'default'
+  const applyConfiguredThemeMode = () => {
+    const storedMode = getStoredThemeMode(getUserKey())
+    if (storedMode) {
+      window.config.themeMode = storedMode
+    }
+    const mode = normalizeThemeMode(window.config.themeMode)
+    window.config.themeMode = mode
+    window.isNight = applyThemeMode(mode, false)
+    setStoredThemeMode(mode, getUserKey())
+    return mode
+  }
   window.isDeadline = dayjs().isAfter(dayjs('2024-11-26'))
+  applyConfiguredThemeMode()
   // window.isDeadline = true
   window.parse = {
     //解析主题内容
@@ -595,11 +620,10 @@ function run() {
           max-width:1100px !important;
       }
 
-      ${(location.pathname.includes('wow') || location.pathname.includes('tokyo')) ? '' : `
-       .post-item {
-          background: white;
-      } 
-      `}
+      .post-item {
+          background: var(--color-post-item-bg) !important;
+          transition: background-color .3s;
+      }
      
 
       .post-item > .post-content {
@@ -629,13 +653,14 @@ function run() {
 
       .preview {
           margin: 1rem 0;
-          border: 1px solid transparent;
+          border: 1px solid var(--color-preview-border);
           border-radius: var(--box-border-radius);
           cursor: pointer;
+          transition: border-color .3s;
       }
 
       .preview:hover {
-          border: 1px solid #c8c8c8;
+          border: 1px solid var(--color-preview-border-hover);
       }
 
       .preview > .post-content {
@@ -649,7 +674,7 @@ function run() {
       }
 
       .preview  .topic-link:link {
-          color: black !important;
+          color: var(--color-preview-topic-link) !important;
       }
 
       .post-content {
@@ -678,34 +703,11 @@ function run() {
       }
 
       .post-content:visited {
-          color: #afb9c1 !important;
+          color: var(--color-post-content-visited) !important;
       }
 
       .post-content:link {
-          color: #494949;
-      }
-      
-      ${location.href.includes('wow') ? '' : `
-        .Night .post-item {
-          background: #18222d !important;
-        }
-      `}
-    
-
-      .Night .preview {
-          border: 1px solid #3b536e;
-      }
-
-      .Night .preview > .post-content:link {
-          color: #d1d5d9;
-      }
-
-      .Night .preview > .post-content:visited {
-          color: #393f4e !important;
-      }
-      
-      .Night .preview  .topic-link:link {
-          color: #c0dbff !important;
+          color: var(--color-post-content-link);
       }
       
       ${window.config.viewType === 'simple' ? `
@@ -732,6 +734,38 @@ function run() {
       .top{
         position:relative;
       }
+
+      .v2next-theme-toggle {
+        width: 2.8rem;
+        height: 2.8rem;
+        border: none;
+        border-radius: .6rem;
+        padding: 0;
+        margin-left: .8rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        vertical-align: middle;
+        cursor: pointer;
+        background: transparent;
+        color: var(--color-gray, #778087);
+        transition: background-color .2s, color .2s, opacity .2s;
+      }
+
+      .v2next-theme-toggle:hover {
+        background: var(--box-background-hover-color, rgba(0, 0, 0, .06));
+        color: var(--link-color, #556);
+      }
+
+      .v2next-theme-toggle svg {
+        width: 2rem;
+        height: 2rem;
+        display: block;
+      }
+
+      .v2next-origin-theme-toggle-hidden {
+        display: none !important;
+      }
         
       .new{
         position: absolute;
@@ -750,6 +784,163 @@ function run() {
     }
     `
     GM_addStyle(style2)
+    GM_addStyle(`
+      html.dark {
+        --box-background-color: #18222d;
+        --box-foreground-color: #c8d0d8;
+        --box-border-color: rgba(100, 100, 100, 0.4);
+        --box-background-alt-color: #1a2734;
+        --box-background-hover-color: #1e2d3d;
+        --box-border-radius: 8px;
+        --link-color: #aab0b6;
+        --color-foreground: #d1d5d9;
+        --color-fade: rgba(255, 255, 255, 0.35);
+        --color-gray: #778087;
+        --color-table-border: #3b536e;
+        color-scheme: dark;
+      }
+
+      html.dark body {
+        background-color: #22303f;
+        color: #c8d0d8;
+      }
+
+      html.dark #Wrapper {
+        background: #22303f !important;
+        background-image: none !important;
+      }
+
+      html.dark #Top,
+      html.dark #Bottom,
+      html.dark #site-header {
+        background: #18222d;
+        border-color: rgba(100, 100, 100, 0.3);
+      }
+
+      html.dark a,
+      html.dark a:link {
+        color: #c0dbff;
+      }
+
+      html.dark input,
+      html.dark textarea,
+      html.dark select,
+      html.dark #search {
+        background: #1e2d3d !important;
+        color: #d1d5d9 !important;
+        border-color: var(--box-border-color) !important;
+      }
+
+      html.dark #search-result,
+      html.dark .box,
+      html.dark .inner {
+        background: var(--box-background-color);
+        color: #c8d0d8;
+      }
+
+      html.dark .cell,
+      html.dark .item,
+      html.dark .dock_area {
+        border-bottom-color: var(--box-border-color);
+      }
+
+      html.dark .topic-link:link {
+        color: #c8d0d8;
+      }
+
+      html.dark .topic-link:visited {
+        color: #7f8c8d;
+      }
+
+      html.dark .count_livid {
+        background: #31475e !important;
+        color: #c8d0d8 !important;
+      }
+
+      html.dark .count_orange {
+        background: #5a3a24 !important;
+        color: #ffd6ad !important;
+      }
+
+      html.dark .tab {
+        color: #778087;
+        background: transparent;
+      }
+
+      html.dark .tab_current {
+        background: #1e2d3d;
+        color: #c8d0d8;
+      }
+
+      html.dark .cell_tabs .tab:hover {
+        background: #1e2d3d;
+      }
+
+      html.dark .node {
+        color: #778087;
+        background: #293b4d;
+      }
+
+      html.dark .super.button,
+      html.dark input[type="button"],
+      html.dark input[type="submit"],
+      html.dark button {
+        background: #293b4d;
+        color: #d1d5d9;
+        border-color: var(--box-border-color);
+      }
+
+      html.dark .v2next-theme-toggle {
+        background: transparent;
+        border: none;
+      }
+
+      html.dark .topic_info,
+      html.dark .fade,
+      html.dark .small.fade,
+      html.dark .snow {
+        color: rgba(255, 255, 255, 0.35) !important;
+      }
+
+      html.dark .topic_content,
+      html.dark .reply_content,
+      html.dark .markdown_body {
+        color: #c8d0d8;
+      }
+
+      html.dark .header,
+      html.dark .topic_buttons,
+      html.dark .cell_ops {
+        border-bottom-color: var(--box-border-color);
+      }
+
+      html.dark a.page_normal {
+        background: #293b4d;
+        color: #c8d0d8;
+        border-color: var(--box-border-color);
+      }
+
+      html.dark a.page_current {
+        background: #31475e;
+        color: #fff;
+      }
+
+      html.dark table,
+      html.dark td,
+      html.dark th {
+        border-color: var(--color-table-border);
+      }
+
+      html.dark .sep20,
+      html.dark .sep10,
+      html.dark .sep5 {
+        background: transparent;
+      }
+
+      html.dark * {
+        text-shadow: none !important;
+      }
+    `)
   }
 
   // 自动签到（后台）
@@ -910,6 +1101,7 @@ function run() {
     }
 
     functions.initConfig()
+    applyConfiguredThemeMode()
 
     let box: any
     let list
@@ -978,7 +1170,7 @@ function run() {
             }
           })
           if (window.isDeadline && $('.tab_current').text() == '最热') {
-            headerWrap.append($(`<div class="cell" id="SecondaryTabs"><div class="fr"><a href="/v2hot?3">3天最热</a> &nbsp; &nbsp; <a href="/v2hot?7">7天最热</a> &nbsp; &nbsp; <a href="/v2hot?30">30天最热</a> &nbsp; &nbsp; <a href="/v2hot?setting"><i class="fa fa-calendar" aria-hidden="true"></i></a></div><a href="/v2hot?-1">昨天最热</a> &nbsp; &nbsp; <a href="/v2hot?-2">前天最热</a> &nbsp; &nbsp; </div>`))
+            headerWrap.append($(`<div class="cell" id="SecondaryTabs" style="display:flex;align-items:center;"><div style="white-space:nowrap;"><a href="/v2hot?-1">昨天最热</a> &nbsp;&nbsp; <a href="/v2hot?-2">前天最热</a></div><span id="current-hot-date-slot" style="margin:0 auto;"></span><div style="white-space:nowrap;"><a href="/v2hot?3">3天最热</a> &nbsp;&nbsp; <a href="/v2hot?7">7天最热</a> &nbsp;&nbsp; <a href="/v2hot?30">30天最热</a> &nbsp;&nbsp; <a href="/v2hot?setting"><i class="fa fa-calendar" aria-hidden="true"></i></a></div></div>`))
           }
           last = $(box).children().last()
           last.addClass('cell post-item')
@@ -1175,7 +1367,12 @@ function run() {
   }
 }
 
-if (!isMobile) {
+let pcAppStarted = false
+
+function startPcApp() {
+  if (pcAppStarted) return
+  if (!document.querySelector('#Rightbar')) return
+  pcAppStarted = true
   console.log('V2EX PC端')
   run()
   let vueApp = createApp(App)
@@ -1184,4 +1381,10 @@ if (!isMobile) {
 
   // functions.loadAndRunScript("https://update.greasyfork.org/scripts/448472/v2%E6%96%B0%E5%B8%96%E6%8C%82%E4%BB%B6.user.js")
   functions.loadAndRunScript("https://update.greasyfork.org/scripts/448472/1074290/v2%E6%96%B0%E5%B8%96%E6%8C%82%E4%BB%B6.user.js")
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startPcApp, {once: true})
+} else {
+  startPcApp()
 }

@@ -3,9 +3,52 @@ import App from './pages/App.vue';
 import {GM_notification} from "gmApi"
 import './global.d.ts'
 import {PageType, Post, Reply} from "@v2next/core/types"
-import {DefaultUser, functions, getDefaultConfig, getDefaultPost} from "@v2next/core";
+import {
+  applyThemeMode,
+  DefaultUser,
+  functions,
+  getDefaultConfig,
+  getDefaultPost,
+  normalizeThemeMode
+} from "@v2next/core";
 
-let isMobile = !document.querySelector('#Rightbar');
+const THEME_CACHE_KEY = 'v2next-theme-mode'
+const THEME_USER_KEY = 'v2next-theme-user-key'
+
+function getStoredThemeMode(userKey = 'default') {
+  const normalize = (mode: any) => mode === 'light' || mode === 'dark' ? mode : undefined
+  try {
+    const raw = localStorage.getItem('v2ex-config')
+    const configMap = raw ? JSON.parse(raw) : {}
+    const userMode = normalize(configMap?.[userKey]?.themeMode)
+    if (userMode) return userMode
+    if (userKey !== 'default') {
+      const defaultMode = normalize(configMap?.default?.themeMode)
+      if (defaultMode) return defaultMode
+    }
+    return normalize(localStorage.getItem(THEME_CACHE_KEY))
+  } catch (e) {
+    return normalize(localStorage.getItem(THEME_CACHE_KEY))
+  }
+}
+
+function setStoredThemeMode(mode: 'light' | 'dark', userKey = 'default') {
+  try {
+    const raw = localStorage.getItem('v2ex-config')
+    const configMap = raw ? JSON.parse(raw) : {}
+    const userConfig = configMap?.[userKey] ?? {}
+    userConfig.themeMode = mode
+    configMap[userKey] = userConfig
+    const defaultConfig = configMap?.default ?? {}
+    defaultConfig.themeMode = mode
+    configMap.default = defaultConfig
+    localStorage.setItem('v2ex-config', JSON.stringify(configMap))
+  } catch (e) {
+    // localStorage 解析失败时至少保留轻量缓存。
+  }
+  localStorage.setItem(THEME_CACHE_KEY, mode)
+  localStorage.setItem(THEME_USER_KEY, userKey)
+}
 
 function findReplyBoxMobile(boxs: any) {
   // 根据内容的元素属性特征定位回复区域
@@ -28,6 +71,13 @@ function findReplyBoxMobile(boxs: any) {
 
 let $section = document.createElement('section')
 $section.id = 'app'
+const bootstrapThemeMode = getStoredThemeMode() ?? 'light'
+const bootstrapIsNight = applyThemeMode(bootstrapThemeMode, false)
+if (!document.body) {
+  document.addEventListener('DOMContentLoaded', () => {
+    applyThemeMode(bootstrapThemeMode, false)
+  }, {once: true})
+}
 
 function run() {
   //历史遗留属性
@@ -47,10 +97,24 @@ function run() {
     issue: 'https://github.com/zyronon/v2ex-script/issues'
   }
   window.currentVersion = 1
-  window.isNight = $('.Night').length === 1
+  window._originNight = false
+  window.isNight = bootstrapIsNight
   window.cb = null
   window.stopMe = false
   window.postList = []
+  const getUserKey = () => window.user.username || 'default'
+  const applyConfiguredThemeMode = () => {
+    const storedMode = getStoredThemeMode(getUserKey())
+    if (storedMode) {
+      window.config.themeMode = storedMode
+    }
+    const mode = normalizeThemeMode(window.config.themeMode)
+    window.config.themeMode = mode
+    window.isNight = applyThemeMode(mode, false)
+    setStoredThemeMode(mode, getUserKey())
+    return mode
+  }
+  applyConfiguredThemeMode()
   window.parse = {
     //解析帖子内容
     async parsePostContent(post: Post, body: JQuery, htmlText: string) {
@@ -597,8 +661,56 @@ function run() {
   function initStyle() {
     //给Wrapper和content取消宽高，是因为好像是v2的屏蔽机制，时不时会v2会修改这两个div的宽高，让网页变形
     let style2 = `
-      
-    }
+      html.dark {
+        --box-background-color: #18222d;
+        --box-foreground-color: #c8d0d8;
+        --box-border-color: rgba(100, 100, 100, 0.4);
+        --box-background-alt-color: #1a2734;
+        --box-background-hover-color: #1e2d3d;
+        --link-color: #aab0b6;
+        --color-gray: #778087;
+        color-scheme: dark;
+      }
+
+      html.dark body,
+      html.dark #Wrapper,
+      html.dark .slide,
+      html.dark .slide-item {
+        background: #22303f !important;
+        color: #c8d0d8;
+      }
+
+      html.dark #Top,
+      html.dark #Bottom,
+      html.dark #site-header,
+      html.dark .box,
+      html.dark .inner,
+      html.dark .cell {
+        background: #18222d;
+        color: #c8d0d8;
+        border-color: var(--box-border-color);
+      }
+
+      html.dark a,
+      html.dark a:link {
+        color: #c0dbff;
+      }
+
+      html.dark input,
+      html.dark textarea,
+      html.dark select,
+      html.dark button {
+        background: #1e2d3d !important;
+        color: #d1d5d9 !important;
+        border-color: var(--box-border-color) !important;
+      }
+
+      html.dark .topic_info,
+      html.dark .fade,
+      html.dark .small.fade,
+      html.dark .snow {
+        color: rgba(255, 255, 255, 0.35) !important;
+      }
     `
     let addStyle2: HTMLStyleElement = document.createElement("style");
     // @ts-ignore
@@ -751,13 +863,17 @@ function run() {
     return new Promise(resolve => {
       //获取默认配置
       let configStr = localStorage.getItem('v2ex-config')
+      let configMap: Record<string, any> = {}
       if (configStr) {
-        let configObj = JSON.parse(configStr)
-        configObj = configObj[window.user.username ?? 'default']
+        configMap = JSON.parse(configStr)
+        let configObj = configMap[window.user.username ?? 'default']
         if (configObj) {
           window.config = Object.assign(window.config, configObj)
         }
       }
+      window.config.themeMode = normalizeThemeMode(window.config.themeMode)
+      configMap[window.user.username ?? 'default'] = window.config
+      localStorage.setItem('v2ex-config', JSON.stringify(configMap))
       resolve(window.config)
     })
   }
@@ -782,9 +898,7 @@ function run() {
       }
     }, true)
 
-    if (window.isNight) {
-      document.documentElement.classList.add('dark')
-    }
+    applyConfiguredThemeMode()
     let {pageData, pageType} = functions.checkPageType()
     window.pageType = pageType
     window.pageData = pageData
@@ -820,6 +934,7 @@ function run() {
     }
 
     initConfig().then(async r => {
+      applyConfiguredThemeMode()
 
       initStyle()
 
@@ -989,7 +1104,12 @@ function run() {
   }
 }
 
-if (isMobile) {
+let mobileAppStarted = false
+
+function startMobileApp() {
+  if (mobileAppStarted) return
+  if (document.querySelector('#Rightbar')) return
+  mobileAppStarted = true
   console.log('V2EX 移动端')
   ;(function () {
     if (/eruda=1/.test(location.href) || localStorage.getItem('active-eruda')) {
@@ -1010,4 +1130,10 @@ if (isMobile) {
   let vueApp = createApp(App)
   vueApp.config.unwrapInjectedRef = true
   vueApp.mount($section);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startMobileApp, {once: true})
+} else {
+  startMobileApp()
 }

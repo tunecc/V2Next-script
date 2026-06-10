@@ -15,7 +15,10 @@ import BaseSwitch from "../components/BaseSwitch.vue";
 import BaseLoading from "../components/BaseLoading.vue";
 import NotificationModal from "../components/Modal/NotificationModal.vue";
 import BaseButton from "../components/BaseButton.vue";
-import {functions, getDefaultPost} from "@v2next/core/core.ts";
+import {applyThemeMode, functions, getDefaultPost, normalizeThemeMode} from "@v2next/core/core.ts";
+
+const THEME_CACHE_KEY = 'v2next-theme-mode'
+const THEME_USER_KEY = 'v2next-theme-user-key'
 
 export default {
   components: {
@@ -80,8 +83,20 @@ export default {
   watch: {
     config: {
       handler(newVal) {
-        let config = {[window.user.username ?? 'default']: newVal}
-        localStorage.setItem('v2ex-config', JSON.stringify(config))
+        const mode = normalizeThemeMode(newVal?.themeMode)
+        if (newVal?.themeMode !== mode) {
+          newVal.themeMode = mode
+        }
+        const raw = localStorage.getItem('v2ex-config')
+        const configMap = raw ? JSON.parse(raw) : {}
+        const userKey = window.user.username || 'default'
+        configMap[userKey] = newVal
+        const defaultConfig = configMap.default ?? {}
+        defaultConfig.themeMode = mode
+        configMap.default = defaultConfig
+        localStorage.setItem('v2ex-config', JSON.stringify(configMap))
+        localStorage.setItem(THEME_CACHE_KEY, mode)
+        localStorage.setItem(THEME_USER_KEY, userKey)
         window.config = newVal
       },
       deep: true
@@ -115,6 +130,12 @@ export default {
         }
       },
       deep: true
+    },
+    'config.themeMode': {
+      handler() {
+        this.applyThemeByConfig()
+      },
+      immediate: true
     },
     show(n) {
       if (n) this.step++
@@ -202,6 +223,14 @@ export default {
     document.removeEventListener('click', this.clickA, true)
   },
   methods: {
+    applyThemeByConfig() {
+      const mode = normalizeThemeMode(this.config?.themeMode)
+      if (this.config.themeMode !== mode) {
+        this.config.themeMode = mode
+      }
+      this.isNight = applyThemeMode(mode, false)
+      localStorage.setItem(THEME_CACHE_KEY, mode)
+    },
     async getUnreadMessagesCount() {
       const res = await fetch(`${location.origin}/mission`)
       const htmlText = await res.text()
@@ -230,7 +259,11 @@ export default {
 
       // console.log('click-a', e.target, e, href, id, title)
       //夜间模式切换
-      if (href.includes('/settings/night/toggle')) return
+      if (href.includes('/settings/night/toggle')) {
+        this.config.themeMode = this.isNight ? 'light' : 'dark'
+        functions.stopEvent(e)
+        return
+      }
       if (href.includes('/?tab=')) return
       if (href.includes('/go')) return
       //清除最近记录
@@ -679,4 +712,3 @@ export default {
   gap: 1rem;
 }
 </style>
-

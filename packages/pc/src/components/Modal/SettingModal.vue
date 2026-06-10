@@ -114,6 +114,21 @@
               </div>
               <div v-if="tabIndex === 1">
                 <div class="row border">
+                  <label class="item-title">主题模式</label>
+                  <div class="wrapper">
+                    <div class="radio-group2">
+                      <div class="radio"
+                           @click="config.themeMode = 'light'"
+                           :class="config.themeMode === 'light' ? 'active' : ''">浅色
+                      </div>
+                      <div class="radio"
+                           @click="config.themeMode = 'dark'"
+                           :class="config.themeMode === 'dark' ? 'active' : ''">深色
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="row border">
                   <label class="item-title">回复类型</label>
                   <div class="wrapper">
                     <BaseSelect v-model:display-type="config.commentDisplayType"/>
@@ -447,6 +462,9 @@ export default {
   watch: {
     config: {
       handler(n) {
+        if (!['light', 'dark'].includes(n.themeMode)) {
+          n.themeMode = 'light'
+        }
         n.topReplyLoveMinCount = Math.trunc(n.topReplyLoveMinCount)
         if (n.topReplyLoveMinCount < 0) {
           n.topReplyLoveMinCount = 1

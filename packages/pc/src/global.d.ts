@@ -9,6 +9,7 @@ declare global {
     pageData: any,
     config: Config,
     isNight: boolean,
+    _originNight: boolean,
     isLogin: boolean,
     canParseV2exPage: boolean,
     pageType?: PageType,
