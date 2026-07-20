@@ -616,35 +616,64 @@ export const DefaultVal = {
   imgurProxy: "https://img.noobzone.ru/getimg.php?url=",
 }
 
-export type ThemeMode = 'light' | 'dark'
-export type LegacyThemeMode = ThemeMode | 'system'
+export type ThemeResolved = 'light' | 'dark'
+export type ThemePreference = ThemeResolved | 'system'
+/** @deprecated 语义上表示 resolved；新代码优先用 ThemeResolved */
+export type ThemeMode = ThemeResolved
+export type LegacyThemeMode = ThemePreference
 export const THEME_CACHE_KEY = 'v2next-theme-mode'
 export const THEME_USER_KEY = 'v2next-theme-user-key'
+export const THEME_MEDIA_QUERY = '(prefers-color-scheme: dark)'
 export const DEFAULT_MAX_REPLY_COUNT_LIMIT = 2000
 const LEGACY_DEFAULT_MAX_REPLY_COUNT_LIMIT = 400
 
-function resolveLegacyThemeMode(
-  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined,
-  fallbackMode: ThemeMode
-): ThemeMode {
-  if (themeMode === 'light' || themeMode === 'dark') return themeMode
-  if (themeMode === 'system') return getSystemThemeMode()
-  return fallbackMode
-}
-
-export function getSystemThemeMode(originNight = false): ThemeMode {
+export function getSystemThemeMode(originNight = false): ThemeResolved {
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    return window.matchMedia(THEME_MEDIA_QUERY).matches ? 'dark' : 'light'
   }
   return originNight ? 'dark' : 'light'
 }
 
+/** 归一化为 preference；非法 → fallback（默认 system） */
+export function normalizeThemePreference(
+  themeMode: ThemePreference | string | undefined | null,
+  fallback: ThemePreference = 'system'
+): ThemePreference {
+  if (themeMode === 'light' || themeMode === 'dark' || themeMode === 'system') {
+    return themeMode
+  }
+  if (fallback === 'light' || fallback === 'dark' || fallback === 'system') {
+    return fallback
+  }
+  return 'system'
+}
+
+/**
+ * 历史名：旧实现会把 system resolve 成 light/dark（错误）。
+ * 现改为 preference 归一，保留 system。调用方若需要 resolved 请用 resolveThemeMode。
+ */
 export function normalizeThemeMode(
-  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined,
-  fallbackMode?: Config['themeMode'] | LegacyThemeMode | string
-): Config['themeMode'] {
-  const fallback = resolveLegacyThemeMode(fallbackMode, 'light')
-  return resolveLegacyThemeMode(themeMode, fallback)
+  themeMode: ThemePreference | string | undefined | null,
+  fallbackMode?: ThemePreference | string
+): ThemePreference {
+  const fallback = normalizeThemePreference(fallbackMode, 'system')
+  return normalizeThemePreference(themeMode, fallback)
+}
+
+export function resolveThemeMode(
+  themeMode: ThemePreference | string | undefined | null = 'system',
+  originNight = false
+): ThemeResolved {
+  const preference = normalizeThemePreference(themeMode, 'system')
+  if (preference === 'system') return getSystemThemeMode(originNight)
+  return preference
+}
+
+export function resolveThemeNight(
+  themeMode: ThemePreference | string | undefined | null = 'system',
+  originNight = false
+) {
+  return resolveThemeMode(themeMode, originNight) === 'dark'
 }
 
 export function normalizeMaxReplyCountLimit(value: any, migrateLegacyDefault = false) {
@@ -656,59 +685,58 @@ export function normalizeMaxReplyCountLimit(value: any, migrateLegacyDefault = f
   return limit
 }
 
-export function getStoredThemeMode(userKey = 'default'): ThemeMode | undefined {
-  const normalize = (mode: any): ThemeMode | undefined => (
-    mode === 'light' || mode === 'dark' ? mode : undefined
-  )
+function parseStoredPreference(mode: any): ThemePreference | undefined {
+  return mode === 'light' || mode === 'dark' || mode === 'system' ? mode : undefined
+}
+
+export function getStoredThemePreference(userKey = 'default'): ThemePreference | undefined {
   try {
     const raw = localStorage.getItem('v2ex-config')
     const configMap = raw ? JSON.parse(raw) : {}
-    const userMode = normalize(configMap?.[userKey]?.themeMode)
+    const userMode = parseStoredPreference(configMap?.[userKey]?.themeMode)
     if (userMode) return userMode
     if (userKey !== 'default') {
-      const defaultMode = normalize(configMap?.default?.themeMode)
+      const defaultMode = parseStoredPreference(configMap?.default?.themeMode)
       if (defaultMode) return defaultMode
     }
-    return normalize(localStorage.getItem(THEME_CACHE_KEY))
+    return parseStoredPreference(localStorage.getItem(THEME_CACHE_KEY))
   } catch (e) {
-    return normalize(localStorage.getItem(THEME_CACHE_KEY))
+    return parseStoredPreference(localStorage.getItem(THEME_CACHE_KEY))
   }
 }
 
-export function setStoredThemeMode(mode: ThemeMode, userKey = 'default') {
+/** 兼容旧名 */
+export function getStoredThemeMode(userKey = 'default'): ThemePreference | undefined {
+  return getStoredThemePreference(userKey)
+}
+
+export function setStoredThemePreference(mode: ThemePreference, userKey = 'default') {
+  const preference = normalizeThemePreference(mode, 'system')
   try {
     const raw = localStorage.getItem('v2ex-config')
     const configMap = raw ? JSON.parse(raw) : {}
     const userConfig = configMap?.[userKey] ?? {}
-    userConfig.themeMode = mode
+    userConfig.themeMode = preference
     configMap[userKey] = userConfig
     const defaultConfig = configMap?.default ?? {}
-    defaultConfig.themeMode = mode
+    defaultConfig.themeMode = preference
     configMap.default = defaultConfig
     localStorage.setItem('v2ex-config', JSON.stringify(configMap))
   } catch (e) {
     // localStorage 解析失败时至少保留轻量缓存。
   }
-  localStorage.setItem(THEME_CACHE_KEY, mode)
+  localStorage.setItem(THEME_CACHE_KEY, preference)
   localStorage.setItem(THEME_USER_KEY, userKey)
 }
 
-export function resolveThemeMode(
-  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined = 'light',
-  originNight = false
-): ThemeMode {
-  return normalizeThemeMode(themeMode, originNight ? 'dark' : 'light')
+export function setStoredThemeMode(mode: ThemePreference, userKey = 'default') {
+  setStoredThemePreference(mode, userKey)
 }
 
-export function resolveThemeNight(
-  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined = 'light',
-  originNight = false
-) {
-  return resolveThemeMode(themeMode, originNight) === 'dark'
-}
-
-export function resetOriginThemeMode(themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined = 'light') {
-  const mode = normalizeThemeMode(themeMode, 'light')
+export function resetOriginThemeMode(
+  themeMode: ThemePreference | string | undefined | null = 'system'
+): ThemeResolved {
+  const mode = resolveThemeMode(themeMode, false)
   if (typeof document === 'undefined') return mode
 
   const root = document.documentElement
@@ -730,10 +758,14 @@ export function resetOriginThemeMode(themeMode: Config['themeMode'] | LegacyThem
 }
 
 export function applyThemeMode(
-  themeMode: Config['themeMode'] | LegacyThemeMode | string | undefined = 'light',
+  themeMode: ThemePreference | string | undefined | null = 'system',
   originNight = false
-) {
-  const mode = resetOriginThemeMode(resolveThemeMode(themeMode, originNight))
+): boolean {
+  const mode = resetOriginThemeMode(
+    // resolve 一次，避免 reset 内再读 system 时与 originNight 不一致
+    resolveThemeMode(themeMode, originNight)
+  )
+  // 注意：resetOriginThemeMode 入参若已是 light|dark，resolve 仍返回自身
   const isNight = mode === 'dark'
   if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('dark', isNight)
@@ -774,7 +806,7 @@ export function getDefaultConfig(val: any = {}): Config {
     version: DefaultVal.currentVersion,
     collectBrowserNotice: false,
     fontSizeType: 'normal',
-    themeMode: 'light',
+    themeMode: 'system',
     notice: {
       uid: '',
       text: '',
@@ -787,7 +819,7 @@ export function getDefaultConfig(val: any = {}): Config {
     replaceImgur: false,
     maxReplyCountLimit: DEFAULT_MAX_REPLY_COUNT_LIMIT,
   }, val)
-  config.themeMode = normalizeThemeMode(config.themeMode)
+  config.themeMode = normalizeThemePreference(config.themeMode, 'system')
   config.maxReplyCountLimit = normalizeMaxReplyCountLimit(config.maxReplyCountLimit, true)
   return config
 }
