@@ -64,6 +64,14 @@
           <div class="wrapper">
             <div class="radio-group2">
               <div class="radio"
+                   @click="config.themeMode = 'system'"
+                   :class="config.themeMode === 'system' ? 'active' : ''">
+                跟随系统
+                <span v-if="config.themeMode === 'system'" class="theme-resolved-hint">
+                  （当前：{{ resolvedThemeLabel }}）
+                </span>
+              </div>
+              <div class="radio"
                    @click="config.themeMode = 'light'"
                    :class="config.themeMode === 'light' ? 'active' : ''">浅色
               </div>
@@ -190,7 +198,7 @@ import NavBar from "@/components/NavBar.vue";
 import {Icon} from "@iconify/vue";
 import BaseSelect from "@/components/BaseSelect.vue";
 import FontSizeType from "@/components/FontSizeType.vue";
-import {DefaultVal, functions} from "@v2next/core/core.ts";
+import {DefaultVal, functions, normalizeThemePreference, resolveThemeMode} from "@v2next/core/core.ts";
 
 export default {
   name: "Setting",
@@ -238,14 +246,16 @@ export default {
     },
     isNew() {
       return this.config.version < DefaultVal.currentVersion
+    },
+    resolvedThemeLabel() {
+      const resolved = resolveThemeMode(this.config?.themeMode, false)
+      return resolved === 'dark' ? '深色' : '浅色'
     }
   },
   watch: {
     config: {
       handler(n) {
-        if (!['light', 'dark'].includes(n.themeMode)) {
-          n.themeMode = 'light'
-        }
+        n.themeMode = normalizeThemePreference(n.themeMode, 'system')
         n.topReplyLoveMinCount = Math.trunc(n.topReplyLoveMinCount)
         if (n.topReplyLoveMinCount < 0) {
           n.topReplyLoveMinCount = 1
@@ -298,5 +308,11 @@ export default {
   font-size: 1.4rem;
   text-align: left;
   color: var(--color-font);
+}
+
+.theme-resolved-hint {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-left: 2px;
 }
 </style>

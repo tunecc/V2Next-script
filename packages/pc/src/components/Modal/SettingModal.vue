@@ -118,6 +118,14 @@
                   <div class="wrapper">
                     <div class="radio-group2">
                       <div class="radio"
+                           @click="config.themeMode = 'system'"
+                           :class="config.themeMode === 'system' ? 'active' : ''">
+                        跟随系统
+                        <span v-if="config.themeMode === 'system'" class="theme-resolved-hint">
+                          （当前：{{ resolvedThemeLabel }}）
+                        </span>
+                      </div>
+                      <div class="radio"
                            @click="config.themeMode = 'light'"
                            :class="config.themeMode === 'light' ? 'active' : ''">浅色
                       </div>
@@ -415,7 +423,9 @@ import {
   DEFAULT_MAX_REPLY_COUNT_LIMIT,
   DefaultVal,
   functions,
-  normalizeMaxReplyCountLimit as normalizeMaxReplyCountLimitValue
+  normalizeMaxReplyCountLimit as normalizeMaxReplyCountLimitValue,
+  normalizeThemePreference,
+  resolveThemeMode
 } from "@v2next/core/core.ts";
 import BaseSelect from "@/components/BaseSelect.vue";
 import {Icon} from "@iconify/vue";
@@ -477,14 +487,16 @@ export default {
     },
     isNew() {
       return this.config.version < DefaultVal.currentVersion && window.isDeadline
+    },
+    resolvedThemeLabel() {
+      const resolved = resolveThemeMode(this.config?.themeMode, false)
+      return resolved === 'dark' ? '深色' : '浅色'
     }
   },
   watch: {
     config: {
       handler(n) {
-        if (!['light', 'dark'].includes(n.themeMode)) {
-          n.themeMode = 'light'
-        }
+        n.themeMode = normalizeThemePreference(n.themeMode, 'system')
         n.topReplyLoveMinCount = Math.trunc(n.topReplyLoveMinCount)
         if (n.topReplyLoveMinCount < 0) {
           n.topReplyLoveMinCount = 1
@@ -662,6 +674,12 @@ export default {
 </script>
 
 <style scoped lang="less">
+.theme-resolved-hint {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-left: 2px;
+}
+
 .setting-modal {
   .modal-root {
     z-index: 9;
