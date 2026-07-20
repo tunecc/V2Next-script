@@ -23,7 +23,6 @@ import {
   getStoredThemePreference,
   normalizeThemePreference,
   resolveThemeMode,
-  setStoredThemePreference,
   THEME_CACHE_KEY,
   THEME_USER_KEY,
   subscribeSystemThemeChange,
@@ -338,7 +337,8 @@ export default {
       if (!next) return
       const preference = normalizeThemePreference(next, 'system')
       if (this.config.themeMode === preference) {
-        // 仍可能需要 re-apply（例如仅 DOM 被改）
+        this.isNight = applyThemeMode(preference, false)
+        this.updateThemeToggleIcon?.()
         return
       }
       this.config.themeMode = preference
