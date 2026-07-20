@@ -19,6 +19,7 @@ import {
   applyThemeMode,
   functions,
   getDefaultPost,
+  getStoredThemePreference,
   normalizeThemePreference,
   resolveThemeMode,
   setStoredThemePreference,
@@ -226,10 +227,40 @@ export default {
       })
     }
   },
+  mounted() {
+    this._unsubSystemTheme = subscribeSystemThemeChange(() => {
+      if (normalizeThemePreference(this.config?.themeMode, 'system') !== 'system') return
+      this.isNight = applyThemeMode('system', false)
+      this.updateThemeToggleIcon?.()
+    })
+
+    this._onStorageTheme = (e) => {
+      if (!e.key || (e.key !== THEME_CACHE_KEY && e.key !== 'v2ex-config')) return
+      const userKey = window.user?.username || 'default'
+      const next = getStoredThemePreference(userKey)
+      if (!next) return
+      const preference = normalizeThemePreference(next, 'system')
+      if (this.config.themeMode === preference) {
+        // 仍可能需要 re-apply（例如仅 DOM 被改）
+        return
+      }
+      this.config.themeMode = preference
+      // themeMode watch 会 apply；若 deep watch 触发 note 同步可接受
+    }
+    window.addEventListener('storage', this._onStorageTheme)
+  },
   beforeUnmount() {
     // console.log('unmounted')
     eventBus.clear()
     document.removeEventListener('click', this.clickA, true)
+    if (this._unsubSystemTheme) {
+      this._unsubSystemTheme()
+      this._unsubSystemTheme = null
+    }
+    if (this._onStorageTheme) {
+      window.removeEventListener('storage', this._onStorageTheme)
+      this._onStorageTheme = null
+    }
   },
   methods: {
     applyThemeByConfig() {
