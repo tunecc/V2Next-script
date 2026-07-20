@@ -10,55 +10,19 @@ import {
   functions,
   getDefaultConfig,
   getDefaultPost,
-  normalizeThemeMode
+  getStoredThemePreference,
+  normalizeThemePreference,
+  setStoredThemePreference,
 } from "@v2next/core";
 import dayjs from "dayjs";
 
-const THEME_CACHE_KEY = 'v2next-theme-mode'
-const THEME_USER_KEY = 'v2next-theme-user-key'
-
-function getStoredThemeMode(userKey = 'default') {
-  const normalize = (mode: any) => mode === 'light' || mode === 'dark' ? mode : undefined
-  try {
-    const raw = localStorage.getItem('v2ex-config')
-    const configMap = raw ? JSON.parse(raw) : {}
-    const userMode = normalize(configMap?.[userKey]?.themeMode)
-    if (userMode) return userMode
-    if (userKey !== 'default') {
-      const defaultMode = normalize(configMap?.default?.themeMode)
-      if (defaultMode) return defaultMode
-    }
-    return normalize(localStorage.getItem(THEME_CACHE_KEY))
-  } catch (e) {
-    return normalize(localStorage.getItem(THEME_CACHE_KEY))
-  }
-}
-
-function setStoredThemeMode(mode: 'light' | 'dark', userKey = 'default') {
-  try {
-    const raw = localStorage.getItem('v2ex-config')
-    const configMap = raw ? JSON.parse(raw) : {}
-    const userConfig = configMap?.[userKey] ?? {}
-    userConfig.themeMode = mode
-    configMap[userKey] = userConfig
-    const defaultConfig = configMap?.default ?? {}
-    defaultConfig.themeMode = mode
-    configMap.default = defaultConfig
-    localStorage.setItem('v2ex-config', JSON.stringify(configMap))
-  } catch (e) {
-    // localStorage 解析失败时至少保留轻量缓存。
-  }
-  localStorage.setItem(THEME_CACHE_KEY, mode)
-  localStorage.setItem(THEME_USER_KEY, userKey)
-}
-
 let $section = document.createElement('section')
 $section.id = 'app'
-const bootstrapThemeMode = getStoredThemeMode() ?? 'light'
-const bootstrapIsNight = applyThemeMode(bootstrapThemeMode, false)
+const bootstrapThemePreference = getStoredThemePreference() ?? 'system'
+const bootstrapIsNight = applyThemeMode(bootstrapThemePreference, false)
 if (!document.body) {
   document.addEventListener('DOMContentLoaded', () => {
-    applyThemeMode(bootstrapThemeMode, false)
+    applyThemeMode(bootstrapThemePreference, false)
   }, {once: true})
 }
 
@@ -76,15 +40,18 @@ function run() {
   window.postList = []
   const getUserKey = () => window.user.username || 'default'
   const applyConfiguredThemeMode = () => {
-    const storedMode = getStoredThemeMode(getUserKey())
+    const storedMode = getStoredThemePreference(getUserKey())
     if (storedMode) {
       window.config.themeMode = storedMode
+    } else {
+      window.config.themeMode = normalizeThemePreference(window.config.themeMode, 'system')
     }
-    const mode = normalizeThemeMode(window.config.themeMode)
-    window.config.themeMode = mode
-    window.isNight = applyThemeMode(mode, false)
-    setStoredThemeMode(mode, getUserKey())
-    return mode
+    const preference = normalizeThemePreference(window.config.themeMode, 'system')
+    window.config.themeMode = preference
+    window.isNight = applyThemeMode(preference, false)
+    // 仅写 preference（含首次默认 system）；禁止写 resolve 后的 light/dark
+    setStoredThemePreference(preference, getUserKey())
+    return preference
   }
   window.isDeadline = dayjs().isAfter(dayjs('2024-11-26'))
   applyConfiguredThemeMode()
