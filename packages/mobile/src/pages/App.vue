@@ -271,7 +271,8 @@ export default {
       // console.log('click-a', e.target, e, href, id, title)
       //夜间模式切换
       if (href.includes('/settings/night/toggle')) {
-        this.config.themeMode = this.isNight ? 'light' : 'dark'
+        const resolved = resolveThemeMode(this.config.themeMode, false)
+        this.config.themeMode = resolved === 'dark' ? 'light' : 'dark'
         functions.stopEvent(e)
         return
       }

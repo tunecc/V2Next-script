@@ -341,6 +341,10 @@ export default {
       // 不要 setItem resolved；cache 已在 config watch 写 preference
       localStorage.setItem(THEME_CACHE_KEY, preference)
     },
+    toggleThemePreference() {
+      const resolved = resolveThemeMode(this.config.themeMode, false)
+      this.config.themeMode = resolved === 'dark' ? 'light' : 'dark'
+    },
     interceptThemeToggle() {
       const originToggle = document.querySelector('.light-toggle')
       if (originToggle) {
@@ -348,7 +352,7 @@ export default {
           originToggle.addEventListener('click', (e) => {
             e.preventDefault()
             e.stopPropagation()
-            this.config.themeMode = this.isNight ? 'light' : 'dark'
+            this.toggleThemePreference()
           })
           originToggle.dataset.v2nextThemeBound = '1'
         }
@@ -367,7 +371,7 @@ export default {
         toggle.addEventListener('click', (e) => {
           e.preventDefault()
           e.stopPropagation()
-          this.config.themeMode = this.isNight ? 'light' : 'dark'
+          this.toggleThemePreference()
         })
 
         const anchor = container.querySelector('a[href^="/member/"], a[href*="/member/"], .avatar, #avatar, .light-toggle')
@@ -384,15 +388,21 @@ export default {
     updateThemeToggleIcon() {
       const toggle = document.querySelector('.v2next-theme-toggle')
       if (!toggle) return
-      const actualMode = this.isNight ? 'dark' : 'light'
+      const preference = normalizeThemePreference(this.config?.themeMode, 'system')
+      const resolved = resolveThemeMode(preference, false)
       const size = 20
       const icons = {
         light: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
         dark: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
       }
-      const labels = {light: '浅色模式', dark: '深色模式'}
-      toggle.innerHTML = icons[actualMode]
-      toggle.title = `当前：${labels[actualMode]}（点击切换）`
+      const resolvedLabel = resolved === 'dark' ? '深色' : '浅色'
+      const nextLabel = resolved === 'dark' ? '浅色' : '深色'
+      toggle.innerHTML = icons[resolved]
+      if (preference === 'system') {
+        toggle.title = `当前：跟随系统（${resolvedLabel}），点击切换为${nextLabel}`
+      } else {
+        toggle.title = `当前：${resolvedLabel}模式，点击切换为${nextLabel}`
+      }
     },
     getHotListBaseDate() {
       const now = new Date()
@@ -626,7 +636,7 @@ export default {
         default:
           //夜间模式切换
           if (e.currentTarget.href.includes('/settings/night/toggle')) {
-            this.config.themeMode = this.isNight ? 'light' : 'dark'
+            this.toggleThemePreference()
             functions.stopEvent(e)
             return
           }
