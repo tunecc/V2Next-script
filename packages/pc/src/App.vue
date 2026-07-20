@@ -15,12 +15,20 @@ import BaseSwitch from "./components/BaseSwitch.vue";
 import BaseLoading from "./components/BaseLoading.vue";
 import NotificationModal from "./components/Modal/NotificationModal.vue";
 import BaseButton from "./components/BaseButton.vue";
-import {applyThemeMode, DefaultVal, functions, getDefaultPost, normalizeThemeMode} from "@v2next/core/core.ts";
+import {
+  applyThemeMode,
+  DefaultVal,
+  functions,
+  getDefaultPost,
+  normalizeThemePreference,
+  resolveThemeMode,
+  setStoredThemePreference,
+  THEME_CACHE_KEY,
+  THEME_USER_KEY,
+  subscribeSystemThemeChange,
+} from "@v2next/core/core.ts";
 import {Icon} from "@iconify/vue";
 import dayjs from "dayjs";
-
-const THEME_CACHE_KEY = 'v2next-theme-mode'
-const THEME_USER_KEY = 'v2next-theme-user-key'
 
 export default {
   components: {
@@ -95,7 +103,9 @@ export default {
         currentDate: '',
         currentLabel: '',
         hotDateSlotReady: false,
-      }
+      },
+      _unsubSystemTheme: null,
+      _onStorageTheme: null,
     }
   },
   computed: {
@@ -120,19 +130,19 @@ export default {
     config: {
       handler(newVal, oldVal) {
         console.log('config', functions.clone(newVal).notice, functions.clone(oldVal).notice)
-        const mode = normalizeThemeMode(newVal?.themeMode)
-        if (newVal?.themeMode !== mode) {
-          newVal.themeMode = mode
+        const preference = normalizeThemePreference(newVal?.themeMode, 'system')
+        if (newVal.themeMode !== preference) {
+          newVal.themeMode = preference
         }
         const configStr = localStorage.getItem('v2ex-config')
         const configObj = configStr ? JSON.parse(configStr) : {}
         const userKey = window.user.username || 'default'
         configObj[userKey] = newVal
         const defaultConfig = configObj.default ?? {}
-        defaultConfig.themeMode = mode
+        defaultConfig.themeMode = preference
         configObj.default = defaultConfig
         localStorage.setItem('v2ex-config', JSON.stringify(configObj))
-        localStorage.setItem(THEME_CACHE_KEY, mode)
+        localStorage.setItem(THEME_CACHE_KEY, preference)
         localStorage.setItem(THEME_USER_KEY, userKey)
         window.config = newVal
         window.parse.editNoteItem(window.user.configPrefix + JSON.stringify(window.config), window.user.configNoteId)
@@ -322,12 +332,14 @@ export default {
   },
   methods: {
     applyThemeByConfig() {
-      const mode = normalizeThemeMode(this.config?.themeMode)
-      if (this.config.themeMode !== mode) {
-        this.config.themeMode = mode
+      const preference = normalizeThemePreference(this.config?.themeMode, 'system')
+      if (this.config.themeMode !== preference) {
+        // 只纠正非法值；system 必须保留
+        this.config.themeMode = preference
       }
-      this.isNight = applyThemeMode(mode, false)
-      localStorage.setItem(THEME_CACHE_KEY, mode)
+      this.isNight = applyThemeMode(preference, false)
+      // 不要 setItem resolved；cache 已在 config watch 写 preference
+      localStorage.setItem(THEME_CACHE_KEY, preference)
     },
     interceptThemeToggle() {
       const originToggle = document.querySelector('.light-toggle')
