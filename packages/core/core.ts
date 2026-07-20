@@ -776,6 +776,29 @@ export function applyThemeMode(
   return isNight
 }
 
+/** 订阅系统 prefers-color-scheme 变化；不读 config、不判断 preference（由调用方过滤） */
+export function subscribeSystemThemeChange(
+  listener: (resolved: ThemeResolved) => void
+): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => {}
+  }
+  const mql = window.matchMedia(THEME_MEDIA_QUERY)
+  const handler = (event?: MediaQueryListEvent) => {
+    const resolved: ThemeResolved = event
+      ? (event.matches ? 'dark' : 'light')
+      : getSystemThemeMode()
+    listener(resolved)
+  }
+  if (typeof mql.addEventListener === 'function') {
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }
+  // Safari 旧 API
+  mql.addListener(handler as any)
+  return () => mql.removeListener(handler as any)
+}
+
 export async function disableOriginNightMode(originNight = false) {
   resetOriginThemeMode('light')
   return originNight
