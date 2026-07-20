@@ -15,10 +15,17 @@ import BaseSwitch from "../components/BaseSwitch.vue";
 import BaseLoading from "../components/BaseLoading.vue";
 import NotificationModal from "../components/Modal/NotificationModal.vue";
 import BaseButton from "../components/BaseButton.vue";
-import {applyThemeMode, functions, getDefaultPost, normalizeThemeMode} from "@v2next/core/core.ts";
-
-const THEME_CACHE_KEY = 'v2next-theme-mode'
-const THEME_USER_KEY = 'v2next-theme-user-key'
+import {
+  applyThemeMode,
+  functions,
+  getDefaultPost,
+  getStoredThemePreference,
+  normalizeThemePreference,
+  resolveThemeMode,
+  THEME_CACHE_KEY,
+  THEME_USER_KEY,
+  subscribeSystemThemeChange,
+} from "@v2next/core/core.ts";
 
 export default {
   components: {
@@ -64,6 +71,8 @@ export default {
         h: ''
       },
       step: 0,
+      _unsubSystemTheme: null,
+      _onStorageTheme: null,
     }
   },
   computed: {
@@ -83,19 +92,19 @@ export default {
   watch: {
     config: {
       handler(newVal) {
-        const mode = normalizeThemeMode(newVal?.themeMode)
-        if (newVal?.themeMode !== mode) {
-          newVal.themeMode = mode
+        const preference = normalizeThemePreference(newVal?.themeMode, 'system')
+        if (newVal.themeMode !== preference) {
+          newVal.themeMode = preference
         }
         const raw = localStorage.getItem('v2ex-config')
         const configMap = raw ? JSON.parse(raw) : {}
         const userKey = window.user.username || 'default'
         configMap[userKey] = newVal
         const defaultConfig = configMap.default ?? {}
-        defaultConfig.themeMode = mode
+        defaultConfig.themeMode = preference
         configMap.default = defaultConfig
         localStorage.setItem('v2ex-config', JSON.stringify(configMap))
-        localStorage.setItem(THEME_CACHE_KEY, mode)
+        localStorage.setItem(THEME_CACHE_KEY, preference)
         localStorage.setItem(THEME_USER_KEY, userKey)
         window.config = newVal
       },
@@ -217,19 +226,52 @@ export default {
       })
     }
   },
+  mounted() {
+    this._unsubSystemTheme = subscribeSystemThemeChange(() => {
+      if (normalizeThemePreference(this.config?.themeMode, 'system') !== 'system') return
+      this.isNight = applyThemeMode('system', false)
+      this.updateThemeToggleIcon?.()
+    })
+
+    this._onStorageTheme = (e) => {
+      if (!e.key || (e.key !== THEME_CACHE_KEY && e.key !== 'v2ex-config')) return
+      const userKey = window.user?.username || 'default'
+      const next = getStoredThemePreference(userKey)
+      if (!next) return
+      const preference = normalizeThemePreference(next, 'system')
+      if (this.config.themeMode === preference) {
+        this.isNight = applyThemeMode(preference, false)
+        this.updateThemeToggleIcon?.()
+        return
+      }
+      this.config.themeMode = preference
+      // themeMode watch 会 apply；若 deep watch 触发 note 同步可接受
+    }
+    window.addEventListener('storage', this._onStorageTheme)
+  },
   beforeUnmount() {
     // console.log('unmounted')
     eventBus.clear()
     document.removeEventListener('click', this.clickA, true)
+    if (this._unsubSystemTheme) {
+      this._unsubSystemTheme()
+      this._unsubSystemTheme = null
+    }
+    if (this._onStorageTheme) {
+      window.removeEventListener('storage', this._onStorageTheme)
+      this._onStorageTheme = null
+    }
   },
   methods: {
     applyThemeByConfig() {
-      const mode = normalizeThemeMode(this.config?.themeMode)
-      if (this.config.themeMode !== mode) {
-        this.config.themeMode = mode
+      const preference = normalizeThemePreference(this.config?.themeMode, 'system')
+      if (this.config.themeMode !== preference) {
+        // 只纠正非法值；system 必须保留
+        this.config.themeMode = preference
       }
-      this.isNight = applyThemeMode(mode, false)
-      localStorage.setItem(THEME_CACHE_KEY, mode)
+      this.isNight = applyThemeMode(preference, false)
+      // 不要 setItem resolved；cache 已在 config watch 写 preference
+      localStorage.setItem(THEME_CACHE_KEY, preference)
     },
     async getUnreadMessagesCount() {
       const res = await fetch(`${location.origin}/mission`)
@@ -260,7 +302,8 @@ export default {
       // console.log('click-a', e.target, e, href, id, title)
       //夜间模式切换
       if (href.includes('/settings/night/toggle')) {
-        this.config.themeMode = this.isNight ? 'light' : 'dark'
+        const resolved = resolveThemeMode(this.config.themeMode, false)
+        this.config.themeMode = resolved === 'dark' ? 'light' : 'dark'
         functions.stopEvent(e)
         return
       }

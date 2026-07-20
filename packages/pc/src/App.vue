@@ -15,12 +15,20 @@ import BaseSwitch from "./components/BaseSwitch.vue";
 import BaseLoading from "./components/BaseLoading.vue";
 import NotificationModal from "./components/Modal/NotificationModal.vue";
 import BaseButton from "./components/BaseButton.vue";
-import {applyThemeMode, DefaultVal, functions, getDefaultPost, normalizeThemeMode} from "@v2next/core/core.ts";
+import {
+  applyThemeMode,
+  DefaultVal,
+  functions,
+  getDefaultPost,
+  getStoredThemePreference,
+  normalizeThemePreference,
+  resolveThemeMode,
+  THEME_CACHE_KEY,
+  THEME_USER_KEY,
+  subscribeSystemThemeChange,
+} from "@v2next/core/core.ts";
 import {Icon} from "@iconify/vue";
 import dayjs from "dayjs";
-
-const THEME_CACHE_KEY = 'v2next-theme-mode'
-const THEME_USER_KEY = 'v2next-theme-user-key'
 
 export default {
   components: {
@@ -95,7 +103,9 @@ export default {
         currentDate: '',
         currentLabel: '',
         hotDateSlotReady: false,
-      }
+      },
+      _unsubSystemTheme: null,
+      _onStorageTheme: null,
     }
   },
   computed: {
@@ -120,19 +130,19 @@ export default {
     config: {
       handler(newVal, oldVal) {
         console.log('config', functions.clone(newVal).notice, functions.clone(oldVal).notice)
-        const mode = normalizeThemeMode(newVal?.themeMode)
-        if (newVal?.themeMode !== mode) {
-          newVal.themeMode = mode
+        const preference = normalizeThemePreference(newVal?.themeMode, 'system')
+        if (newVal.themeMode !== preference) {
+          newVal.themeMode = preference
         }
         const configStr = localStorage.getItem('v2ex-config')
         const configObj = configStr ? JSON.parse(configStr) : {}
         const userKey = window.user.username || 'default'
         configObj[userKey] = newVal
         const defaultConfig = configObj.default ?? {}
-        defaultConfig.themeMode = mode
+        defaultConfig.themeMode = preference
         configObj.default = defaultConfig
         localStorage.setItem('v2ex-config', JSON.stringify(configObj))
-        localStorage.setItem(THEME_CACHE_KEY, mode)
+        localStorage.setItem(THEME_CACHE_KEY, preference)
         localStorage.setItem(THEME_USER_KEY, userKey)
         window.config = newVal
         window.parse.editNoteItem(window.user.configPrefix + JSON.stringify(window.config), window.user.configNoteId)
@@ -313,21 +323,57 @@ export default {
       this.setCurrentHotDate(this.getHotListBaseDate().format('YYYY-M-D'), '0')
     }
     this.interceptThemeToggle()
+
+    this._unsubSystemTheme = subscribeSystemThemeChange(() => {
+      if (normalizeThemePreference(this.config?.themeMode, 'system') !== 'system') return
+      this.isNight = applyThemeMode('system', false)
+      this.updateThemeToggleIcon?.()
+    })
+
+    this._onStorageTheme = (e) => {
+      if (!e.key || (e.key !== THEME_CACHE_KEY && e.key !== 'v2ex-config')) return
+      const userKey = window.user?.username || 'default'
+      const next = getStoredThemePreference(userKey)
+      if (!next) return
+      const preference = normalizeThemePreference(next, 'system')
+      if (this.config.themeMode === preference) {
+        this.isNight = applyThemeMode(preference, false)
+        this.updateThemeToggleIcon?.()
+        return
+      }
+      this.config.themeMode = preference
+      // themeMode watch 会 apply；若 deep watch 触发 note 同步可接受
+    }
+    window.addEventListener('storage', this._onStorageTheme)
   },
   beforeUnmount() {
     // console.log('unmounted')
     clearInterval(this.timer)
     eventBus.clear()
     $(document).off('click', 'a', this.clickA)
+    if (this._unsubSystemTheme) {
+      this._unsubSystemTheme()
+      this._unsubSystemTheme = null
+    }
+    if (this._onStorageTheme) {
+      window.removeEventListener('storage', this._onStorageTheme)
+      this._onStorageTheme = null
+    }
   },
   methods: {
     applyThemeByConfig() {
-      const mode = normalizeThemeMode(this.config?.themeMode)
-      if (this.config.themeMode !== mode) {
-        this.config.themeMode = mode
+      const preference = normalizeThemePreference(this.config?.themeMode, 'system')
+      if (this.config.themeMode !== preference) {
+        // 只纠正非法值；system 必须保留
+        this.config.themeMode = preference
       }
-      this.isNight = applyThemeMode(mode, false)
-      localStorage.setItem(THEME_CACHE_KEY, mode)
+      this.isNight = applyThemeMode(preference, false)
+      // 不要 setItem resolved；cache 已在 config watch 写 preference
+      localStorage.setItem(THEME_CACHE_KEY, preference)
+    },
+    toggleThemePreference() {
+      const resolved = resolveThemeMode(this.config.themeMode, false)
+      this.config.themeMode = resolved === 'dark' ? 'light' : 'dark'
     },
     interceptThemeToggle() {
       const originToggle = document.querySelector('.light-toggle')
@@ -336,7 +382,7 @@ export default {
           originToggle.addEventListener('click', (e) => {
             e.preventDefault()
             e.stopPropagation()
-            this.config.themeMode = this.isNight ? 'light' : 'dark'
+            this.toggleThemePreference()
           })
           originToggle.dataset.v2nextThemeBound = '1'
         }
@@ -355,7 +401,7 @@ export default {
         toggle.addEventListener('click', (e) => {
           e.preventDefault()
           e.stopPropagation()
-          this.config.themeMode = this.isNight ? 'light' : 'dark'
+          this.toggleThemePreference()
         })
 
         const anchor = container.querySelector('a[href^="/member/"], a[href*="/member/"], .avatar, #avatar, .light-toggle')
@@ -372,15 +418,21 @@ export default {
     updateThemeToggleIcon() {
       const toggle = document.querySelector('.v2next-theme-toggle')
       if (!toggle) return
-      const actualMode = this.isNight ? 'dark' : 'light'
+      const preference = normalizeThemePreference(this.config?.themeMode, 'system')
+      const resolved = resolveThemeMode(preference, false)
       const size = 20
       const icons = {
         light: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
         dark: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
       }
-      const labels = {light: '浅色模式', dark: '深色模式'}
-      toggle.innerHTML = icons[actualMode]
-      toggle.title = `当前：${labels[actualMode]}（点击切换）`
+      const resolvedLabel = resolved === 'dark' ? '深色' : '浅色'
+      const nextLabel = resolved === 'dark' ? '浅色' : '深色'
+      toggle.innerHTML = icons[resolved]
+      if (preference === 'system') {
+        toggle.title = `当前：跟随系统（${resolvedLabel}），点击切换为${nextLabel}`
+      } else {
+        toggle.title = `当前：${resolvedLabel}模式，点击切换为${nextLabel}`
+      }
     },
     getHotListBaseDate() {
       const now = new Date()
@@ -614,7 +666,7 @@ export default {
         default:
           //夜间模式切换
           if (e.currentTarget.href.includes('/settings/night/toggle')) {
-            this.config.themeMode = this.isNight ? 'light' : 'dark'
+            this.toggleThemePreference()
             functions.stopEvent(e)
             return
           }
